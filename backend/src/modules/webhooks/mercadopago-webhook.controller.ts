@@ -10,6 +10,7 @@ import {
   ValidationPipe,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { PaymentService } from '../payments/payment.service.js';
 import { MercadoPagoWebhookPayloadDto } from './mercadopago-webhook.dto.js';
 import { MercadoPagoSecurityService } from './mercadopago-security.service.js';
 
@@ -18,16 +19,17 @@ export class MercadoPagoWebhookController {
   constructor(
     private readonly securityService: MercadoPagoSecurityService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly paymentService: PaymentService,
   ) {}
 
   @Post('mercadopago')
   @HttpCode(HttpStatus.OK)
   @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
-  receiveWebhook(
+  async receiveWebhook(
     @Headers('x-signature') xSignature: string,
     @Headers('x-request-id') xRequestId: string,
     @Body() payload: MercadoPagoWebhookPayloadDto,
-  ): { received: boolean } {
+  ): Promise<{ received: boolean }> {
     console.log('[Webhook] Request recibido');
     console.log('[Webhook] Headers:', { xSignature, xRequestId });
     console.log('[Webhook] Payload:', payload);
@@ -51,6 +53,21 @@ export class MercadoPagoWebhookController {
       user_id: payload.user_id,
       api_version: payload.api_version,
     };
+
+    if (payload.action === 'payment.updated' || payload.type === 'payment') {
+      const paymentReferenceId = String(payload.data?.id ?? '');
+
+      if (paymentReferenceId) {
+        const saved = await this.paymentService.saveApprovedPayment({
+          mercadoPagoPaymentId: paymentReferenceId,
+          amount: Number(0),
+          currency: 'ARS',
+          status: 'approved',
+        });
+
+        console.log('[Webhook] Pago persistido:', saved.id);
+      }
+    }
 
     console.log('[Webhook] Emitiendo evento payment.approved:', normalizedPayload);
     this.eventEmitter.emit('payment.approved', normalizedPayload);
