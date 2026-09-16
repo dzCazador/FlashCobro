@@ -62,6 +62,16 @@ que cada comercio se registre/loguee, conecte **su propia cuenta de Mercado Pago
 - [ ] Manejar comercios sin credenciales (skip) y errores por token inválido (log + estado "conexión MP fallida").
 - [ ] Cuidar concurrencia: no duplicar ejecución por comercio (flag de "corriendo" por merchant).
 
+## Fase 6b — Polling condicional (solo si hay cliente conectado)
+
+- [ ] El poller de un comercio consulta Mercado Pago **solo si ese comercio tiene al menos un SSE conectado**
+  (bandeja abierta del mostrador), para no consumir cuota ni rate-limit de MP cuando nadie mira.
+- [ ] Contador de conexiones SSE por comercio: la 1ª conexión enciende el polling de ese comercio, la última desconexión lo apaga.
+- [ ] Mientras no hay clientes conectados, los cobros se registran igual vía **webhook** (persistencia siempre activa);
+  el polling condicional queda como respaldo/backfill.
+- [ ] Al encenderse por primera vez en el día, correr un backfill (ej. 24 h) que recupere movimientos ocurridos sin nadie conectado.
+- [ ] Reconexión del frontend (caída de red) reactiva el polling automáticamente al volver el SSE.
+
 ## Fase 7 — SSE por comercio
 
 - [ ] Emitir con tenant: `eventEmitter.emit(`payment.approved.${merchantId}`, payload)`.
