@@ -1,8 +1,8 @@
 import { NestFactory } from '@nestjs/core';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import express from 'express';
 import { AppModule } from './app.module.js';
-
-async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'http://localhost:3001',
@@ -11,12 +11,15 @@ const DEFAULT_ALLOWED_ORIGINS = [
   'http://127.0.0.1:3000',
 ];
 
-const extraOrigins = (process.env.CORS_ORIGINS ?? '')
-  .split(',')
-  .map((origin) => origin.trim())
-  .filter(Boolean);
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
 
-const allowedOrigins = [...DEFAULT_ALLOWED_ORIGINS, ...extraOrigins];
+  const extraOrigins = (process.env.CORS_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  const allowedOrigins = [...DEFAULT_ALLOWED_ORIGINS, ...extraOrigins];
 
   app.enableCors({
     origin: (
@@ -32,6 +35,34 @@ const allowedOrigins = [...DEFAULT_ALLOWED_ORIGINS, ...extraOrigins];
     },
     credentials: true,
   });
+
+  const frontendOutDir = path.resolve(process.cwd(), 'public');
+  if (existsSync(frontendOutDir)) {
+    const staticHandler = express.static(frontendOutDir, {
+      index: 'index.html',
+    });
+    app.use(staticHandler);
+    app.use(
+      (
+        req: express.Request,
+        res: express.Response,
+        next: express.NextFunction,
+      ) => {
+        const isStaticAsset =
+          req.path.startsWith('/_next/') ||
+          req.path.startsWith('/favicon.ico');
+        if (
+          req.method === 'GET' &&
+          !req.path.startsWith('/api/') &&
+          !isStaticAsset
+        ) {
+          res.sendFile(path.join(frontendOutDir, 'index.html'));
+          return;
+        }
+        next();
+      },
+    );
+  }
 
   await app.listen(process.env.PORT ?? 3000);
 }
