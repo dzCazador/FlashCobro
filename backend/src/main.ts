@@ -1,7 +1,11 @@
 import { NestFactory } from '@nestjs/core';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
-import express from 'express';
+import express, {
+  type NextFunction,
+  type Request,
+  type Response,
+} from 'express';
 import { AppModule } from './app.module.js';
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -19,21 +23,38 @@ async function bootstrap() {
     .map((origin) => origin.trim())
     .filter(Boolean);
 
-  const allowedOrigins = [...DEFAULT_ALLOWED_ORIGINS, ...extraOrigins];
+  const allowedOrigins = new Set<string>([
+    ...DEFAULT_ALLOWED_ORIGINS,
+    ...extraOrigins,
+  ]);
 
-  app.enableCors({
-    origin: (
-      origin: string | undefined,
-      callback: (error: Error | null, allow?: boolean) => void,
-    ) => {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    const origin = req.headers.origin;
+    const host = req.headers.host;
+    const isSameOrigin =
+      typeof origin === 'string' &&
+      typeof host === 'string' &&
+      origin.endsWith(`://${host}`);
+
+    if (origin && (isSameOrigin || allowedOrigins.has(origin))) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader(
+        'Access-Control-Allow-Methods',
+        'GET,HEAD,POST,OPTIONS,DELETE,PUT,PATCH',
+      );
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, x-signature, x-request-id',
+      );
+
+      if (req.method === 'OPTIONS') {
+        res.sendStatus(204);
         return;
       }
+    }
 
-      callback(new Error(`Origin ${origin} not allowed by CORS`));
-    },
-    credentials: true,
+    next();
   });
 
   const frontendOutDir = path.resolve(process.cwd(), 'public');
