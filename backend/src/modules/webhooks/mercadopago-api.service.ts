@@ -80,6 +80,60 @@ export class MercadoPagoApiService {
   private readonly accessToken = process.env.MP_ACCESS_TOKEN;
   private readonly baseUrl = 'https://api.mercadopago.com';
 
+  async searchIncomingTransfers(
+    begin: Date,
+    end: Date,
+    offset = 0,
+    limit = 50,
+  ): Promise<MercadoPagoPaymentDetail[]> {
+    if (!this.accessToken) {
+      this.logger.warn(
+        'MP_ACCESS_TOKEN no configurado. No se puede consultar transferencias.',
+      );
+      return [];
+    }
+
+    try {
+      const { data } = await axios.get(`${this.baseUrl}/v1/payments/search`, {
+        headers: { Authorization: `Bearer ${this.accessToken}` },
+        params: {
+          status: 'approved',
+          sort: 'date_created',
+          criteria: 'desc',
+          limit,
+          offset,
+          range: 'date_created',
+          begin_date: begin.toISOString(),
+          end_date: end.toISOString(),
+        },
+        timeout: 10000,
+      });
+
+      const results: Array<Record<string, any>> = data?.results ?? [];
+
+      return results
+        .filter((payment) => {
+          const amount = Number(payment.transaction_amount ?? 0);
+          const operationType = payment.operation_type as string | undefined;
+          const paymentType = payment.payment_type_id as string | undefined;
+          return (
+            amount > 0 &&
+            (operationType === 'account_fund' ||
+              operationType === 'money_transfer') &&
+            (paymentType === 'bank_transfer' ||
+              paymentType === 'account_money')
+          );
+        })
+        .map(mapMercadoPagoPayment);
+    } catch (error) {
+      this.logger.error(
+        'No se pudieron consultar transferencias desde Mercado Pago',
+        error instanceof Error ? error.stack : String(error),
+      );
+      return [];
+    }
+  }
+
   async fetchPaymentDetail(
     paymentId: string,
   ): Promise<MercadoPagoPaymentDetail | null> {

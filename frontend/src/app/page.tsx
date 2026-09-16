@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Moon, Sun } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -128,9 +129,30 @@ function capitalizePrimera(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function FlashCobroLogo({ className = '' }: { className?: string }) {
+  return (
+    <div
+      className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-emerald-500 shadow-lg shadow-emerald-900/40 light:shadow-emerald-500/30 ${className}`}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-6 w-6 text-slate-950"
+        aria-hidden="true"
+      >
+        <path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" fill="currentColor" stroke="none" />
+      </svg>
+    </div>
+  );
+}
+
 export default function Home() {
   const [isConnected, setIsConnected] = useState(false);
-  const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(true);
   const [lastPayment, setLastPayment] = useState<PaymentPayload | null>(null);
   const [showBanner, setShowBanner] = useState(false);
   const [cajaDiaria, setCajaDiaria] = useState(0);
@@ -146,6 +168,13 @@ export default function Home() {
   const [logs, setLogs] = useState<string[]>([
     'Sistema listo. Esperando eventos del backend...',
   ]);
+  const [showLogs, setShowLogs] = useState(false);
+  const [isLight, setIsLight] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+    return window.localStorage.getItem('flashcobro-theme') === 'light';
+  });
   const audioContextRef = useRef<AudioContext | null>(null);
 
   const appendLog = (message: string) => {
@@ -244,7 +273,7 @@ export default function Home() {
           return [record, ...prev].slice(0, 20);
         });
 
-        if (audioUnlocked) {
+        if (audioEnabled) {
           playCashRegisterTone();
           window.setTimeout(() => speakPayment(payment), 400);
         }
@@ -252,7 +281,7 @@ export default function Home() {
     };
 
     return () => eventSource.close();
-  }, [audioUnlocked]);
+  }, [audioEnabled]);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/v1/payments/history?limit=10`)
@@ -322,7 +351,7 @@ export default function Home() {
     return () => window.clearTimeout(timeout);
   }, [showBanner]);
 
-  const enableAudio = async () => {
+  const unlockAudio = async () => {
     const AudioCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
 
     if (!AudioCtor) {
@@ -332,7 +361,6 @@ export default function Home() {
     const context = audioContextRef.current ?? new AudioCtor();
     audioContextRef.current = context;
     await context.resume();
-    setAudioUnlocked(true);
 
     if ('speechSynthesis' in window) {
       const unlock = new SpeechSynthesisUtterance(' ');
@@ -341,35 +369,80 @@ export default function Home() {
     }
   };
 
+  const toggleAudio = () => {
+    if (audioEnabled) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      setAudioEnabled(false);
+      return;
+    }
+    setAudioEnabled(true);
+    void unlockAudio();
+  };
+
+  useEffect(() => {
+    if (audioEnabled) {
+      void unlockAudio();
+    }
+  }, [audioEnabled]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', isLight);
+    window.localStorage.setItem('flashcobro-theme', isLight ? 'light' : 'dark');
+  }, [isLight]);
+
   return (
-    <main className="min-h-screen bg-slate-950 px-6 py-8 text-white">
+    <main className="min-h-screen bg-slate-950 light:bg-slate-100 px-6 py-8 text-white light:text-slate-900">
       <div className="mx-auto flex max-w-6xl flex-col gap-8">
-        <header className="flex items-center justify-between gap-4 rounded-2xl border border-slate-800 bg-slate-900/80 p-6 shadow-2xl shadow-slate-950/40 backdrop-blur-sm">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-emerald-400">
-              Mostrador
-            </p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight text-white">
-              Cobros en vivo
-            </h1>
+        <header className="flex items-center justify-between gap-4 rounded-2xl border border-slate-800 light:border-slate-200 bg-slate-900/80 light:bg-white p-6 shadow-2xl shadow-slate-950/40 light:shadow-slate-200/60 backdrop-blur-sm">
+          <div className="flex items-center gap-4">
+            <button
+              type="button"
+              onDoubleClick={() => setShowLogs((prev) => !prev)}
+              title="FlashCobro"
+              className="select-none"
+            >
+              <FlashCobroLogo className="transition-transform hover:scale-105" />
+            </button>
+            <div>
+              <h1 className="mt-1 flex items-baseline gap-2 text-2xl font-black tracking-tight text-white light:text-slate-900 sm:text-3xl">
+                FlashCobro
+                <span className="text-base font-semibold text-slate-300 light:text-slate-600">
+                  · Cobros en vivo
+                </span>
+              </h1>
+            </div>
           </div>
 
           <div className="flex items-center gap-4">
-            {!audioUnlocked && (
-              <button
-                type="button"
-                onClick={enableAudio}
-                className="rounded-full bg-amber-400 px-4 py-2 text-sm font-bold text-slate-950 transition hover:bg-amber-300"
-              >
-                Activar audio
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={toggleAudio}
+              className={`rounded-full px-4 py-2 text-sm font-bold transition ${
+                audioEnabled
+                  ? 'bg-amber-400 text-slate-950 hover:bg-amber-300'
+                  : 'border border-slate-600 light:border-slate-300 bg-slate-800 light:bg-slate-100 text-slate-200 light:text-slate-700 hover:bg-slate-700 light:hover:bg-slate-200'
+              }`}
+            >
+              {audioEnabled ? 'Desactivar Sonido' : 'Activar Sonido'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsLight((prev) => !prev)}
+              title={isLight ? 'Modo nocturno' : 'Modo diurno'}
+              aria-label={isLight ? 'Activar modo nocturno' : 'Activar modo diurno'}
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 text-slate-200 light:text-slate-700 transition hover:bg-slate-700 light:hover:bg-slate-200"
+            >
+              {isLight ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
 
             <div className="flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium">
               <span
                 className={`h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-rose-500'}`}
               />
-              <span className={isConnected ? 'text-emerald-300' : 'text-rose-300'}>
+              <span className={isConnected ? 'text-emerald-300 light:text-emerald-600' : 'text-rose-300 light:text-rose-600'}>
                 {isConnected ? 'Conectado' : 'Reconectando'}
               </span>
             </div>
@@ -377,33 +450,33 @@ export default function Home() {
         </header>
 
         <section className="grid gap-6 lg:grid-cols-[1.3fr_0.7fr]">
-          <div className="rounded-3xl border border-slate-800 bg-slate-900 p-8 shadow-xl">
+          <div className="rounded-3xl border border-slate-800 light:border-slate-200 bg-slate-900 light:bg-white p-8 shadow-xl">
             <div className="mb-6 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-slate-200">Turno actual</h2>
-              <span className="rounded-full border border-slate-700 bg-slate-800 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-300">
+              <h2 className="text-xl font-semibold text-slate-200 light:text-slate-700">Turno actual</h2>
+              <span className="rounded-full border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-slate-300 light:text-slate-600">
                 Sesión activa
               </span>
             </div>
 
-            <div className="rounded-2xl border border-slate-700 bg-slate-800/70 p-8 text-center">
+            <div className="rounded-2xl border border-slate-700 light:border-slate-300 bg-slate-800/70 light:bg-slate-100 p-8 text-center">
               {lastPayment ? (
                 <>
-                  <p className="text-sm uppercase tracking-[0.3em] text-emerald-300">
+                  <p className="text-sm uppercase tracking-[0.3em] text-emerald-300 light:text-emerald-600">
                     Último cobro
                   </p>
-                  <p className="mt-4 text-6xl font-black tracking-tight text-white">
+                  <p className="mt-4 text-6xl font-black tracking-tight text-white light:text-slate-900">
                     {lastPayment.formattedAmount ?? `$ ${(Number(lastPayment.amount ?? 0)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </p>
-                  <p className="mt-4 text-sm text-slate-300">
+                  <p className="mt-4 text-sm text-slate-300 light:text-slate-600">
                     {lastPayment.paymentMethod ?? 'Mercado Pago'}
                   </p>
                 </>
               ) : (
                 <>
-                  <p className="text-sm uppercase tracking-[0.3em] text-slate-400">
+                  <p className="text-sm uppercase tracking-[0.3em] text-slate-400 light:text-slate-500">
                     Esperando cobros
                   </p>
-                  <p className="mt-4 text-4xl font-bold text-slate-400">
+                  <p className="mt-4 text-4xl font-bold text-slate-400 light:text-slate-500">
                     $ 0,00
                   </p>
                 </>
@@ -411,19 +484,19 @@ export default function Home() {
             </div>
           </div>
 
-          <aside className="rounded-3xl border border-slate-800 bg-slate-900 p-6 shadow-xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
+          <aside className="rounded-3xl border border-slate-800 light:border-slate-200 bg-slate-900 light:bg-white p-6 shadow-xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400 light:text-slate-500">
               Caja Diaria
             </p>
-            <p className="mt-4 text-4xl font-black text-emerald-400">
+            <p className="mt-4 text-4xl font-black text-emerald-400 light:text-emerald-600">
               {new Intl.NumberFormat('es-AR', {
                 style: 'currency',
                 currency: 'ARS',
               }).format(cajaDiaria)}
             </p>
-            <div className="mt-6 rounded-2xl border border-slate-700 bg-slate-800 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-400">Estado</p>
-              <p className="mt-2 text-lg font-semibold text-white">
+            <div className="mt-6 rounded-2xl border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 p-4">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-400 light:text-slate-500">Estado</p>
+              <p className="mt-2 text-lg font-semibold text-white light:text-slate-900">
                 {lastPayment?.status ?? 'Esperando'}
               </p>
             </div>
@@ -431,38 +504,38 @@ export default function Home() {
         </section>
       </div>
 
-      <section className="mx-auto mt-6 w-full max-w-6xl rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl">
+      <section className="mx-auto mt-6 w-full max-w-6xl rounded-2xl border border-slate-800 light:border-slate-200 bg-slate-900/80 light:bg-white p-4 shadow-xl">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300 light:text-slate-600">
             Últimos cobros
           </h3>
-          <span className="text-xs text-slate-400">{payments.length} registros</span>
+          <span className="text-xs text-slate-400 light:text-slate-500">{payments.length} registros</span>
         </div>
 
-        <div className="max-h-72 overflow-auto rounded-xl border border-slate-700 bg-slate-950">
+        <div className="max-h-72 overflow-auto rounded-xl border border-slate-700 light:border-slate-300 bg-slate-950 light:bg-slate-100">
           {payments.length === 0 ? (
-            <p className="p-4 text-sm text-slate-400">
+            <p className="p-4 text-sm text-slate-400 light:text-slate-500">
               Todavía no hay cobros registrados.
             </p>
           ) : (
-            <ul className="divide-y divide-slate-800">
+            <ul className="divide-y divide-slate-800 light:divide-slate-200">
               {payments.map((payment) => (
                 <li
                   key={payment.mercadoPagoPaymentId}
                   className="flex items-center justify-between gap-4 px-4 py-3"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-white">
+                    <p className="truncate text-sm font-semibold text-white light:text-slate-900">
                       {payment.payerName ?? 'Pago'}
                     </p>
-                    <p className="truncate text-xs text-slate-400">
+                    <p className="truncate text-xs text-slate-400 light:text-slate-500">
                       {new Date(payment.createdAt).toLocaleString('es-AR')} ·{' '}
                       {payment.paymentMethod ?? 'Mercado Pago'}
                     </p>
                   </div>
                   <p
                     className={`text-lg font-black ${
-                      payment.status === 'approved' ? 'text-emerald-400' : 'text-slate-400'
+                      payment.status === 'approved' ? 'text-emerald-400 light:text-emerald-600' : 'text-slate-400 light:text-slate-500'
                     }`}
                   >
                     {formatMonto(Number(payment.amount))}
@@ -474,9 +547,9 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto mt-6 w-full max-w-6xl rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl">
+      <section className="mx-auto mt-6 w-full max-w-6xl rounded-2xl border border-slate-800 light:border-slate-200 bg-slate-900/80 light:bg-white p-4 shadow-xl">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300 light:text-slate-600">
             Totales diarios
           </h3>
           <div className="flex flex-wrap items-center gap-2">
@@ -484,14 +557,14 @@ export default function Home() {
               type="date"
               value={fromDate}
               onChange={(event) => setFromDate(event.target.value)}
-              className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-sm text-white [color-scheme:dark]"
+              className="rounded-lg border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 px-3 py-1 text-sm text-white light:text-slate-900 [color-scheme:dark] light:[color-scheme:light]"
             />
-            <span className="text-slate-400">a</span>
+            <span className="text-slate-400 light:text-slate-500">a</span>
             <input
               type="date"
               value={toDate}
               onChange={(event) => setToDate(event.target.value)}
-              className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 text-sm text-white [color-scheme:dark]"
+              className="rounded-lg border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 px-3 py-1 text-sm text-white light:text-slate-900 [color-scheme:dark] light:[color-scheme:light]"
             />
             <button
               type="button"
@@ -503,22 +576,22 @@ export default function Home() {
           </div>
         </div>
 
-        <div className="max-h-72 overflow-auto rounded-xl border border-slate-700 bg-slate-950">
+        <div className="max-h-72 overflow-auto rounded-xl border border-slate-700 light:border-slate-300 bg-slate-950 light:bg-slate-100">
           {loadingTotals ? (
-            <p className="p-4 text-sm text-slate-400">Consultando...</p>
+            <p className="p-4 text-sm text-slate-400 light:text-slate-500">Consultando...</p>
           ) : dailyTotals.length === 0 ? (
-            <p className="p-4 text-sm text-slate-400">
+            <p className="p-4 text-sm text-slate-400 light:text-slate-500">
               No hay movimientos en el período seleccionado.
             </p>
           ) : (
-            <ul className="divide-y divide-slate-800">
+            <ul className="divide-y divide-slate-800 light:divide-slate-200">
               {dailyTotals.map((item) => (
                 <li
                   key={item.date}
                   className="flex items-center justify-between gap-4 px-4 py-3"
                 >
                   <div>
-                    <p className="text-sm font-semibold text-white">
+                    <p className="text-sm font-semibold text-white light:text-slate-900">
                       {capitalizePrimera(
                         new Date(`${item.date}T00:00:00`).toLocaleDateString('es-AR', {
                           weekday: 'long',
@@ -528,9 +601,9 @@ export default function Home() {
                         }),
                       )}
                     </p>
-                    <p className="text-xs text-slate-400">{item.count} cobros</p>
+                    <p className="text-xs text-slate-400 light:text-slate-500">{item.count} cobros</p>
                   </div>
-                  <p className="text-lg font-black text-emerald-400">
+                  <p className="text-lg font-black text-emerald-400 light:text-emerald-600">
                     {formatMonto(item.total)}
                   </p>
                 </li>
@@ -539,30 +612,32 @@ export default function Home() {
           )}
         </div>
 
-        <p className="mt-3 text-right text-sm text-slate-300">
+        <p className="mt-3 text-right text-sm text-slate-300 light:text-slate-600">
           Total del período:{' '}
-          <span className="font-black text-emerald-400">
+          <span className="font-black text-emerald-400 light:text-emerald-600">
             {formatMonto(dailyTotals.reduce((acc, item) => acc + item.total, 0))}
           </span>
         </p>
       </section>
 
-      <section className="mx-auto mt-6 w-full max-w-6xl rounded-2xl border border-slate-800 bg-slate-900/80 p-4 shadow-xl">
+      {showLogs && (
+      <section className="mx-auto mt-6 w-full max-w-6xl rounded-2xl border border-slate-800 light:border-slate-200 bg-slate-900/80 light:bg-white p-4 shadow-xl">
         <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">
+          <h3 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300 light:text-slate-600">
             Log de depuración
           </h3>
-          <span className="text-xs text-slate-400">Últimos 10 eventos</span>
+          <span className="text-xs text-slate-400 light:text-slate-500">Últimos 10 eventos</span>
         </div>
 
-        <div className="max-h-56 space-y-2 overflow-auto rounded-xl border border-slate-700 bg-slate-950 p-3 font-mono text-xs text-slate-200">
+        <div className="max-h-56 space-y-2 overflow-auto rounded-xl border border-slate-700 light:border-slate-300 bg-slate-950 light:bg-slate-100 p-3 font-mono text-xs text-slate-200 light:text-slate-700">
           {logs.map((log, index) => (
-            <div key={`${log}-${index}`} className="border-b border-slate-800 pb-1 last:border-b-0 last:pb-0">
+            <div key={`${log}-${index}`} className="border-b border-slate-800 light:border-slate-200 pb-1 last:border-b-0 last:pb-0">
               {log}
             </div>
           ))}
         </div>
       </section>
+      )}
 
       {showBanner && lastPayment && (
         <div className="fixed inset-x-0 top-6 flex justify-center px-4">
@@ -572,7 +647,7 @@ export default function Home() {
                 <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-100">
                   Pago recibido
                 </p>
-                <p className="mt-2 text-4xl font-black text-white sm:text-5xl">
+                <p className="mt-2 text-4xl font-black text-white light:text-slate-900 sm:text-5xl">
                   {lastPayment.formattedAmount ??
                     new Intl.NumberFormat('es-AR', {
                       style: 'currency',

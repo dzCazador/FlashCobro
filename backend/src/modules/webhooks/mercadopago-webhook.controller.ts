@@ -10,8 +10,8 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { Payment } from '@prisma/client';
 import { PaymentService } from '../payments/payment.service.js';
+import { toStreamPayload } from '../payments/stream-payload.js';
 import { MercadoPagoApiService } from './mercadopago-api.service.js';
 import { MercadoPagoSecurityService } from './mercadopago-security.service.js';
 
@@ -97,26 +97,4 @@ export class MercadoPagoWebhookController {
 
     return { received: true };
   }
-}
-
-function toStreamPayload(payment: Payment): Record<string, unknown> {
-  const amount = Number(payment.amount);
-
-  return {
-    paymentId: payment.mercadoPagoPaymentId,
-    amount,
-    formattedAmount: formatCurrency(amount, payment.currency),
-    currency: payment.currency,
-    status: payment.status,
-    paymentMethod: payment.paymentMethod ?? 'Mercado Pago',
-    payerName: payment.payerName ?? null,
-    timestamp: payment.createdAt.toISOString(),
-  };
-}
-
-function formatCurrency(amount: number, currency: string): string {
-  return new Intl.NumberFormat('es-AR', {
-    style: 'currency',
-    currency,
-  }).format(amount);
 }

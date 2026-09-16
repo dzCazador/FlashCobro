@@ -5,9 +5,12 @@ Contrato de transmisión de eventos Server-Sent Events (SSE) hacia el frontend d
 ```yaml
 asyncapi: 3.0.0
 info:
-  title: Kiosco Realtime Payment Stream
-  version: 1.0.0
-  description: Canal reactivo unidireccional para transmitir pagos confirmados al dashboard del mostrador.
+  title: FlashCobro Realtime Payment Stream
+  version: 1.1.0
+  description: |
+    Canal Server-Sent Events para transmitir pagos confirmados y transferencias recibidas al frontend.
+    Cada evento `payment.approved` puede provenir de dos orígenes: webhook (pagos integrados) o
+    polling de transferencias CVU. El frontend recibe ambos de forma transparente.
 
 channels:
   paymentNotificationChannel:
@@ -30,7 +33,9 @@ components:
     PaymentReceivedMessage:
       name: payment_received
       title: Pago Aprobado Notificado
-      summary: Emitido al instante que un pago de MP pasa la validación y consulta exitosa.
+      summary: |
+        Emitido al detectar un pago aprobado, sea vía webhook (pagos integrados) o
+        polling de transferencias CVU. El backend deduplica automáticamente por mercadoPagoPaymentId.
       payload:
         type: object
         required:
