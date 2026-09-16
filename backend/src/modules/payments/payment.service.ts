@@ -20,6 +20,25 @@ export type PaymentHistoryQuery = {
   toDate?: string;
 };
 
+export type DailyTotal = {
+  date: string;
+  total: number;
+  count: number;
+};
+
+function buildCreatedAtRange(fromDate?: string, toDate?: string): object {
+  const range: { gte?: Date; lte?: Date } = {};
+
+  if (fromDate) {
+    range.gte = new Date(`${fromDate}T00:00:00`);
+  }
+  if (toDate) {
+    range.lte = new Date(`${toDate}T23:59:59.999`);
+  }
+
+  return range;
+}
+
 @Injectable()
 export class PaymentService {
   constructor(private readonly prisma: PrismaService) {}
@@ -53,18 +72,21 @@ export class PaymentService {
     });
   }
 
+  async findByMercadoPagoId(
+    mercadoPagoPaymentId: string,
+  ): Promise<Payment | null> {
+    return this.prisma.payment.findUnique({
+      where: { mercadoPagoPaymentId },
+    });
+  }
+
   async findHistory(query: PaymentHistoryQuery = {}): Promise<Payment[]> {
     const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
 
     const where = {
       ...(query.status ? { status: query.status } : {}),
       ...(query.fromDate || query.toDate
-        ? {
-            createdAt: {
-              ...(query.fromDate ? { gte: new Date(query.fromDate) } : {}),
-              ...(query.toDate ? { lte: new Date(query.toDate) } : {}),
-            },
-          }
+        ? { createdAt: buildCreatedAtRange(query.fromDate, query.toDate) }
         : {}),
     };
 
@@ -73,5 +95,38 @@ export class PaymentService {
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
+  }
+
+  async getDailyTotals(query: { fromDate?: string; toDate?: string } = {}): Promise<DailyTotal[]> {
+    const where =
+      query.fromDate || query.toDate
+        ? { createdAt: buildCreatedAtRange(query.fromDate, query.toDate) }
+        : {};
+
+    const payments = await this.prisma.payment.findMany({
+      where,
+      select: {
+        amount: true,
+        createdAt: true,
+      },
+    });
+
+    const totals = new Map<string, { total: number; count: number }>();
+
+    for (const payment of payments) {
+      const date = payment.createdAt.toLocaleDateString('en-CA');
+      const entry = totals.get(date) ?? { total: 0, count: 0 };
+      entry.total += Number(payment.amount);
+      entry.count += 1;
+      totals.set(date, entry);
+    }
+
+    return [...totals.entries()]
+      .map(([date, { total, count }]) => ({
+        date,
+        total: Math.round(total * 100) / 100,
+        count,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 }

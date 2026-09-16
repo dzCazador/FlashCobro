@@ -23,4 +23,12 @@ export class PaymentController {
       toDate,
     });
   }
+
+  @Get('summary')
+  async getDailyTotals(
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+  ) {
+    return this.paymentService.getDailyTotals({ fromDate, toDate });
+  }
 }
