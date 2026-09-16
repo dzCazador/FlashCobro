@@ -1,114 +1,145 @@
 # FlashCobro
 
-Proyecto full-stack para recibir pagos de Mercado Pago, validar webhooks, emitir eventos internos y mostrar una pantalla de mostrador con SSE.
+Pantalla de mostrador para cobros en vivo con Mercado Pago: detecta pagos y **transferencias recibidas a tu CVU** en tiempo real, con alerta sonora y visual.
+
+En vivo: [https://flashcobro.onrender.com](https://flashcobro.onrender.com)
+
+## Funcionalidades
+
+- **Webhooks de Mercado Pago** para pagos integrados (checkout/QR), con validación HMAC-SHA256 (`x-signature`).
+- **Polling de transferencias CVU**: las transferencias a cuenta no generan webhook, así que el backend consulta periódicamente `GET /v1/payments/search` y las emite igual que un pago.
+- **Backfill al arrancar**: recupera transferencias aprobadas de las últimas N horas y las persiste.
+- **Realtime por SSE**: el frontend recibe `payment_received` al instante (stream `/api/v1/payments/stream`, heartbeat cada 30 s).
+- **Frontend de mostrador**: banner del último cobro, importe en pesos, narración por voz (activable), modo diurno/nocturno, logo con doble clic para mostrar logs, totales diarios y último historial.
+- **Persistencia** en MySQL/Prisma con idempotencia por `mercadoPagoPaymentId`.
 
 ## Stack
 
-- Backend: NestJS + TypeScript
-- Frontend: Next.js + Tailwind CSS
-- Realtime: Server-Sent Events (SSE)
-- Webhook validation: HMAC SHA256
+- Backend: NestJS + TypeScript + Prisma (MySQL) + SSE
+- Frontend: Next.js (export estático) + Tailwind v4
+- Despliegue: Docker + Render (un solo servicio: el backend sirve el frontend)
 
-## Requisitos
+## Arquitectura
 
-- Node.js 20+
-- npm
-- Una secret de Mercado Pago configurada como `MP_WEBHOOK_SECRET`
+```
+┌──────────────┐   webhook firmado    ┌────────────────────┐
+│ Mercado Pago │ ───────────────────▶ │  /api/v1/webhooks  │
+└──────────────┘                      └────────┬───────────┘
+┌────────────────┐   polling cada 10 s         │ payment.approved
+│ /v1/payments/  │ ────────────────────┐       ▼
+│ search (CVU)   │   backfill al boot  │  ┌───────────────┐   SSE   ┌─────────┐
+└────────────────┘                     └─▶│   PaymentDB   │◀──────▶ │ Frontend│
+                                          └───────────────┘  (stream)└─────────┘
+```
 
 ## Configuración
 
-### Backend
-Crear un archivo `.env` dentro de la carpeta `backend`:
+### Variables de entorno (backend)
 
-```env
-MP_WEBHOOK_SECRET=tu_secret_de_mercado_pago
-PORT=3000
-```
+| Variable | Requerida | Descripción |
+|---|---|---|
+| `DATABASE_URL` | Sí | Conexión MySQL (`mysql://user:pass@host:3306/db`) |
+| `MP_WEBHOOK_SECRET` | Sí | Secret de la app de Mercado Pago (mín 10 chars) |
+| `MP_ACCESS_TOKEN` | No | Token de acceso productivo (necesario para polling/backfill y detalle webhook) |
+| `MP_PUBLIC_KEY` | No | Clave pública productiva |
+| `MP_POLL_INTERVAL_MS` | No | Intervalo de polling (default `10000`) |
+| `MP_POLL_WINDOW_SECONDS` | No | Ventana de búsqueda de cada poll (default `120`) |
+| `MP_BACKFILL_HOURS` | No | Horas a recuperar al arrancar (default `24`) |
+| `CORS_ORIGINS` | No | Orígenes extra permitidos (separados por coma) |
+| `PORT` | No | Puerto del backend (default `3000`) |
 
-### Frontend
-Crear un archivo `.env.local` dentro de la carpeta `frontend`:
+Hay dos entornos:
 
-```env
-NEXT_PUBLIC_API_URL=http://localhost:3000
-PORT=3001
-```
+- **Desarrollo**: `backend/.env`
+- **Producción**: `backend/.env.prod` — se carga con `npm run start:prod` (`node --env-file-if-exists=.env.prod dist/main`)
 
-## Ejecutar el proyecto
-
-### Backend
+## Ejecutar en desarrollo
 
 ```bash
+# Backend (NestJS, puerto 3000)
 cd backend
 npm install
 npm run start:dev
+
+# Frontend (Next, puerto 3001)
+cd frontend
+npm install
+NEXT_PUBLIC_API_URL=http://localhost:3000 npm run dev
 ```
 
-### Frontend
+O ambos juntos desde la raíz:
 
 ```bash
-cd frontend
 npm install
 npm run dev
 ```
 
-## URL de la app
+URLs en local:
 
-- Backend: http://localhost:3000
+- Backend + API: http://localhost:3000
 - Frontend: http://localhost:3001
 - Stream SSE: http://localhost:3000/api/v1/payments/stream
 
-## Probar el webhook
+## Endpoints principales
 
-Usar una request POST a:
+| Método | Ruta | Descripción |
+|---|---|---|
+| `POST/GET` | `/api/v1/webhooks/mercadopago` | Recepta webhooks firmados e IPN legacy |
+| `GET` | `/api/v1/payments/stream` | SSE en vivo |
+| `GET` | `/api/v1/payments/history?limit=&status=&fromDate=&toDate=` | Historial persistido |
+| `GET` | `/api/v1/payments/summary?fromDate=&toDate=` | Totales agrupados por día |
 
-```http
-POST http://localhost:3000/api/v1/webhooks/mercadopago
-Content-Type: application/json
-x-request-id: test-123
-x-signature: ts=1700000000,v1=<hash_generado>
+## Despliegue en Render
+
+Se usa un único servicio con el `Dockerfile` de la raíz (construye el frontend estático y el backend; el backend sirve todo en `/`).
+
+1. Subir el proyecto a GitHub.
+2. En Render creá un **Web Service** apuntando al repo:
+   - **Environment**: `Docker`
+   - **Root Directory**: raíz del repo (vacío)
+3. Definí las variables de entorno: `MP_WEBHOOK_SECRET`, `MP_ACCESS_TOKEN`, `MP_PUBLIC_KEY`, `DATABASE_URL` (siempre con prefijo `mysql://`), `MP_BACKFILL_HOURS=24`.
+4. Al desplegar corre `prisma db push` automáticamente y el backend sirve el frontend.
+
+> Nota: las transferencias a CVU se detectan por polling; no necesitás exponer el webhook en un túnel para probarlas, solo una transferencia real.
+
+## Probar un cobro
+
+1. Abrir la vista del mostrador.
+2. Hacer una **transferencia real** (incluso $1) a tu CVU/alias.
+3. En ≤10 s aparece el banner, el audio y se persiste el cobro (backfill 24 h recupera las del día).
+
+Para probar el webhook con curl (pagos integrados), enviar el payload firmado a `POST /api/v1/webhooks/mercadopago`:
+
+```bash
+curl -X POST "http://localhost:3000/api/v1/webhooks/mercadopago" \
+  -H "Content-Type: application/json" \
+  -H "x-request-id: test-123" \
+  -H "x-signature: ts=1700000000,v1=<hash>" \
+  -d '{"action":"payment.created","type":"payment","data":{"id":"123456"}}'
 ```
 
-Body ejemplo:
+La firma `v1` se calcula con HMAC-SHA256 sobre `id:123456;request-id:test-123;ts:1700000000;`.
 
-```json
-{
-  "id": "123456",
-  "live_mode": false,
-  "type": "payment",
-  "date_created": "2021-11-01T02:02:02Z",
-  "user_id": 80101603,
-  "api_version": "v1",
-  "action": "payment.updated",
-  "data": {
-    "id": "123456"
-  }
-}
-```
-
-La firma `v1` se calcula con HMAC-SHA256 sobre:
-
-```text
-id:123456;request-id:test-123;ts:1700000000;
-```
-
-usando la misma `MP_WEBHOOK_SECRET`.
-
-## Verificar flujo
-
-1. Levantar backend y frontend.
-2. Abrir la vista del mostrador en `http://localhost:3001`.
-3. Enviar un webhook válido a `POST /api/v1/webhooks/mercadopago`.
-4. Confirmar que aparece el evento `payment_received` en el stream SSE.
-5. Verificar que el banner verde del pago se muestre y reproduzca el sonido.
-
-## Scripts útiles
+## Tests
 
 ```bash
 cd backend
-npm test
+npm run lint        # oxlint
+npm test            # unit + integración
+npm run test:e2e    # e2e (webhook → DB → SSE, polling con mocks)
 ```
 
-```bash
-cd frontend
-npm run build
-```
+Los e2e cubren todo el flujo sin base de datos (in-memory): firma válida/inválida, idempotencia, IPN legacy, SSE en vivo, backfill y dedupe del polling.
+
+## Scripts útiles
+
+| Comando | Descripción |
+|---|---|
+| `npm run dev` (raíz) | Backend + frontend juntos |
+| `npm run start:prod` (backend) | Producción con `.env.prod` |
+| `npm run build` (frontend) | Export estático a `frontend/out` |
+| `docker build -t flashcobro .` (raíz) | Imagen completa para producción |
+
+## Especificación
+
+Los detalles técnicos (requerimientos, contratos OpenAPI, eventos AsyncAPI, guía de implementación) están en [`specs/`](./specs).
