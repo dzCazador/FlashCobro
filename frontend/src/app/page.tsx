@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { LogOut, Moon, Sun } from 'lucide-react';
+import { LogOut, Moon, Sun, Volume2, VolumeX } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -536,7 +536,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-slate-950 light:bg-slate-100 px-6 py-8 text-white light:text-slate-900">
       <div className="mx-auto flex max-w-6xl flex-col gap-8">
-        <header className="flex items-center justify-between gap-4 rounded-2xl border border-slate-800 light:border-slate-200 bg-slate-900/80 light:bg-white p-6 shadow-2xl shadow-slate-950/40 light:shadow-slate-200/60 backdrop-blur-sm">
+        <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-800 light:border-slate-200 bg-slate-900/80 light:bg-white p-4 sm:p-6 shadow-2xl shadow-slate-950/40 light:shadow-slate-200/60 backdrop-blur-sm">
           <div className="flex items-center gap-4">
             <button
               type="button"
@@ -549,24 +549,29 @@ export default function Home() {
             <div>
               <h1 className="mt-1 flex items-baseline gap-2 text-2xl font-black tracking-tight text-white light:text-slate-900 sm:text-3xl">
                 FlashCobro
-                <span className="text-base font-semibold text-slate-300 light:text-slate-600">
+                <span className="hidden text-base font-semibold text-slate-300 light:text-slate-600 sm:inline">
                   · Cobros en vivo
                 </span>
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-4">
             <button
               type="button"
               onClick={toggleAudio}
-              className={`rounded-full px-4 py-2 text-sm font-bold transition ${
+              title={audioEnabled ? 'Desactivar sonido' : 'Activar sonido'}
+              aria-label={audioEnabled ? 'Desactivar sonido' : 'Activar sonido'}
+              className={`rounded-full px-3 py-2 text-sm font-bold transition sm:px-4 ${
                 audioEnabled
                   ? 'bg-amber-400 text-slate-950 hover:bg-amber-300'
                   : 'border border-slate-600 light:border-slate-300 bg-slate-800 light:bg-slate-100 text-slate-200 light:text-slate-700 hover:bg-slate-700 light:hover:bg-slate-200'
               }`}
             >
-              {audioEnabled ? 'Desactivar Sonido' : 'Activar Sonido'}
+              <span className="hidden sm:inline">{audioEnabled ? 'Desactivar Sonido' : 'Activar Sonido'}</span>
+              <span className="sm:hidden">
+                {audioEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+              </span>
             </button>
 
             <button
@@ -584,16 +589,16 @@ export default function Home() {
               onClick={handleLogout}
               title="Cerrar sesión"
               aria-label="Cerrar sesión"
-              className="flex h-10 items-center gap-2 rounded-full border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 px-4 text-sm font-bold text-slate-200 light:text-slate-700 transition hover:bg-slate-700 light:hover:bg-slate-200"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 text-sm font-bold text-slate-200 light:text-slate-700 transition hover:bg-slate-700 light:hover:bg-slate-200"
             >
               <LogOut className="h-4 w-4" />
             </button>
 
-            <div className="flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium">
+            <div className="flex h-10 items-center justify-center gap-2 rounded-full border px-2.5 sm:px-3 text-sm font-medium">
               <span
                 className={`h-2.5 w-2.5 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-rose-500'}`}
               />
-              <span className={isConnected ? 'text-emerald-300 light:text-emerald-600' : 'text-rose-300 light:text-rose-600'}>
+              <span className={`hidden text-xs sm:inline ${isConnected ? 'text-emerald-300 light:text-emerald-600' : 'text-rose-300 light:text-rose-600'}`}>
                 {isConnected ? 'Conectado' : 'Reconectando'}
               </span>
             </div>
