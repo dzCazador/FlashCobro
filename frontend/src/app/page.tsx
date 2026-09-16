@@ -13,6 +13,7 @@ type PaymentPayload = {
   status?: string;
   paymentMethod?: string;
   payerName?: string;
+  payerEmail?: string;
   timestamp?: string;
   serverTime?: string;
 };
@@ -190,7 +191,13 @@ export default function Home() {
       return;
     }
 
-    const payer = payment.payerName ? ` por ${payment.payerName}` : '';
+    const payerName = payment.payerName;
+    const payerEmail = payment.payerEmail?.split('@')[0];
+    const payer = payerName
+      ? ` por ${payerName}`
+      : payerEmail
+        ? ` de ${payerEmail}`
+        : '';
     const amountWords = numeroEnPalabras(Number(payment.amount ?? 0));
     const text = `Pago recibido${payer}, monto ${amountWords} pesos`;
 
@@ -273,6 +280,7 @@ export default function Home() {
             status: payment.status ?? 'approved',
             paymentMethod: payment.paymentMethod ?? null,
             payerName: payment.payerName ?? null,
+            payerEmail: payment.payerEmail ?? null,
             createdAt: payment.timestamp ?? new Date().toISOString(),
           };
 

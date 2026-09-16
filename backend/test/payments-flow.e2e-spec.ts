@@ -288,7 +288,16 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
       makeApprovedDetail({ mercadoPagoPaymentId: paymentId }),
     );
 
-    const sse = waitForSseData(port, (buffer) => buffer.includes('payment_received'), 5000, sseCookie);
+    let sseData = '';
+    const sse = waitForSseData(
+      port,
+      (buffer) => {
+        sseData = buffer;
+        return buffer.includes('payment_received');
+      },
+      5000,
+      sseCookie,
+    );
 
     await agent
       .post('/api/v1/webhooks/mercadopago')
@@ -297,6 +306,7 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
       .expect(200);
 
     await expect(sse).resolves.toBeUndefined();
+    expect(sseData).toContain('payerEmail":"juan@example.com');
   }, 10000);
 
   it('Login con credenciales incorrectas → 401', async () => {

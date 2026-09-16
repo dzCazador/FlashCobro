@@ -18,6 +18,7 @@ export function toStreamPayload(payment: Payment): Record<string, unknown> {
     status: payment.status,
     paymentMethod: payment.paymentMethod ?? 'Mercado Pago',
     payerName: payment.payerName ?? null,
+    payerEmail: payment.payerEmail ?? null,
     timestamp: payment.createdAt.toISOString(),
   };
 }
