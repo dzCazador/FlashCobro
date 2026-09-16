@@ -677,7 +677,9 @@ export default function Home() {
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-white light:text-slate-900">
-                      {payment.payerName ?? 'Pago'}
+                      {payment.payerName ??
+                        payment.payerEmail?.split('@')[0] ??
+                        'Pago'}
                     </p>
                     <p className="truncate text-xs text-slate-400 light:text-slate-500">
                       {new Date(payment.createdAt).toLocaleString('es-AR')} ·{' '}
