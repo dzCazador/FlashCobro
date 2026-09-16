@@ -13,4 +13,7 @@ export const validationSchema = Joi.object({
   MP_POLL_INTERVAL_MS: Joi.number().positive().optional(),
   MP_POLL_WINDOW_SECONDS: Joi.number().positive().optional(),
   MP_BACKFILL_HOURS: Joi.number().positive().optional(),
+  AUTH_USER: Joi.string().min(1).optional(),
+  AUTH_PASSWORD: Joi.string().min(1).optional(),
+  AUTH_SECRET: Joi.string().min(10).optional(),
 });

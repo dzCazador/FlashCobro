@@ -94,10 +94,16 @@ function waitForSseData(
   port: number,
   matcher: (buffer: string) => boolean,
   timeoutMs = 5000,
+  cookie = '',
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const req = http.get(
-      { host: '127.0.0.1', port, path: '/api/v1/payments/stream' },
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/api/v1/payments/stream',
+        headers: cookie ? { Cookie: cookie } : {},
+      },
       (res) => {
         let buffer = '';
         const timer = setTimeout(() => {
@@ -130,6 +136,8 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
   let port: number;
   let apiMock: ApiMock;
   let store: ReturnType<typeof createInMemoryPrisma>;
+  let agent: ReturnType<typeof request.agent>;
+  let sseCookie: string;
 
   beforeAll(async () => {
     store = createInMemoryPrisma();
@@ -153,6 +161,17 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
     const address = app.getHttpServer().address() as { port: number };
     port = address.port;
     eventEmitter = moduleRef.get(EventEmitter2);
+
+    agent = request.agent(app.getHttpServer());
+    const login = await agent
+      .post('/api/v1/auth/login')
+      .send({ username: 'admin', password: 'admin123' })
+      .expect(200);
+    const setCookieHeader = login.headers['set-cookie'];
+    const rawCookie = Array.isArray(setCookieHeader)
+      ? (setCookieHeader as unknown as string[])[0]
+      : String(setCookieHeader);
+    sseCookie = rawCookie.split(';')[0];
   });
 
   beforeEach(() => {
@@ -171,7 +190,7 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
 
     const emitted = captureEvent<Record<string, unknown>>(eventEmitter, 'payment.approved');
 
-    const res = await request(app.getHttpServer())
+    const res = await agent
       .post('/api/v1/webhooks/mercadopago')
       .set(webhookHeaders(paymentId))
       .send(webhookBody(paymentId))
@@ -195,7 +214,7 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
     const saved = await store.payment.findUnique({ where: { mercadoPagoPaymentId: paymentId } });
     expect(saved).not.toBeNull();
 
-    const { body: history } = await request(app.getHttpServer())
+    const { body: history } = await agent
       .get('/api/v1/payments/history')
       .expect(200);
     expect(history).toHaveLength(1);
@@ -208,7 +227,7 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
       makeApprovedDetail({ mercadoPagoPaymentId: paymentId }),
     );
 
-    await request(app.getHttpServer())
+    await agent
       .get(`/api/v1/webhooks/mercadopago?data.id=${paymentId}`)
       .expect(200, { received: true });
 
@@ -221,7 +240,7 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
       makeApprovedDetail({ mercadoPagoPaymentId: paymentId, status: 'rejected' }),
     );
 
-    await request(app.getHttpServer())
+    await agent
       .post('/api/v1/webhooks/mercadopago')
       .set(webhookHeaders(paymentId))
       .send(webhookBody(paymentId))
@@ -233,7 +252,7 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
   it('Firma inválida → 401 Unauthorized', async () => {
     const paymentId = '900000004';
 
-    await request(app.getHttpServer())
+    await agent
       .post('/api/v1/webhooks/mercadopago')
       .set('x-signature', 'ts=1,v1=firma-invalida')
       .set('x-request-id', 'req-invalida')
@@ -249,12 +268,12 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
       makeApprovedDetail({ mercadoPagoPaymentId: paymentId }),
     );
 
-    await request(app.getHttpServer())
+    await agent
       .post('/api/v1/webhooks/mercadopago')
       .set(webhookHeaders(paymentId))
       .send(webhookBody(paymentId))
       .expect(200);
-    await request(app.getHttpServer())
+    await agent
       .post('/api/v1/webhooks/mercadopago')
       .set(webhookHeaders(paymentId))
       .send(webhookBody(paymentId))
@@ -269,9 +288,9 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
       makeApprovedDetail({ mercadoPagoPaymentId: paymentId }),
     );
 
-    const sse = waitForSseData(port, (buffer) => buffer.includes('payment_received'));
+    const sse = waitForSseData(port, (buffer) => buffer.includes('payment_received'), 5000, sseCookie);
 
-    await request(app.getHttpServer())
+    await agent
       .post('/api/v1/webhooks/mercadopago')
       .set(webhookHeaders(paymentId))
       .send(webhookBody(paymentId))
@@ -280,19 +299,42 @@ describe('FlashCobro e2e: webhook → DB → SSE', () => {
     await expect(sse).resolves.toBeUndefined();
   }, 10000);
 
+  it('Login con credenciales incorrectas → 401', async () => {
+    await request(app.getHttpServer())
+      .post('/api/v1/auth/login')
+      .send({ username: 'admin', password: 'password-incorrecta' })
+      .expect(401);
+  });
+
+  it('Rechaza endpoints protegidos sin sesión', async () => {
+    const anonymous = request(app.getHttpServer());
+    await anonymous.get('/api/v1/payments/history').expect(401);
+    await anonymous.get('/api/v1/payments/summary').expect(401);
+  });
+
+  it('GET /api/v1/auth/me refleja el estado de la sesión', async () => {
+    const { body: authed } = await agent.get('/api/v1/auth/me').expect(200);
+    expect(authed).toEqual({ authenticated: true });
+
+    const { body: anonymous } = await request(app.getHttpServer())
+      .get('/api/v1/auth/me')
+      .expect(200);
+    expect(anonymous).toEqual({ authenticated: false });
+  });
+
   it('GET /api/v1/payments/summary agrupa los cobros del día', async () => {
     const paymentId = '900000007';
     apiMock.fetchPaymentDetail.mockResolvedValue(
       makeApprovedDetail({ mercadoPagoPaymentId: paymentId, amount: 100 }),
     );
 
-    await request(app.getHttpServer())
+    await agent
       .post('/api/v1/webhooks/mercadopago')
       .set(webhookHeaders(paymentId))
       .send(webhookBody(paymentId))
       .expect(200);
 
-    const { body } = await request(app.getHttpServer())
+    const { body } = await agent
       .get('/api/v1/payments/summary')
       .expect(200);
 

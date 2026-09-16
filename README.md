@@ -46,6 +46,8 @@ En vivo: [https://flashcobro.onrender.com](https://flashcobro.onrender.com)
 | `MP_POLL_WINDOW_SECONDS` | No | Ventana de búsqueda de cada poll (default `120`) |
 | `MP_BACKFILL_HOURS` | No | Horas a recuperar al arrancar (default `24`) |
 | `CORS_ORIGINS` | No | Orígenes extra permitidos (separados por coma) |
+| `AUTH_USER` / `AUTH_PASSWORD` | No | Credenciales del mostrador (default: `admin` / `admin123`) |
+| `AUTH_SECRET` | No | Secret para firmar la sesión (cambiar en producción) |
 | `PORT` | No | Puerto del backend (default `3000`) |
 
 Hay dos entornos:
@@ -84,10 +86,15 @@ URLs en local:
 
 | Método | Ruta | Descripción |
 |---|---|---|
-| `POST/GET` | `/api/v1/webhooks/mercadopago` | Recepta webhooks firmados e IPN legacy |
-| `GET` | `/api/v1/payments/stream` | SSE en vivo |
-| `GET` | `/api/v1/payments/history?limit=&status=&fromDate=&toDate=` | Historial persistido |
-| `GET` | `/api/v1/payments/summary?fromDate=&toDate=` | Totales agrupados por día |
+| `POST/GET` | `/api/v1/webhooks/mercadopago` | Recepta webhooks firmados e IPN legacy (**público**) |
+| `POST` | `/api/v1/auth/login` | Inicia sesión (cookie httpOnly) — credenciales `admin` / `admin123` |
+| `POST` | `/api/v1/auth/logout` | Cierra sesión |
+| `GET` | `/api/v1/auth/me` | Estado de la sesión actual |
+| `GET` | `/api/v1/payments/stream` | SSE en vivo (**requiere sesión**) |
+| `GET` | `/api/v1/payments/history?limit=&status=&fromDate=&toDate=` | Historial persistido (**requiere sesión**) |
+| `GET` | `/api/v1/payments/summary?fromDate=&toDate=` | Totales agrupados por día (**requiere sesión**) |
+
+> El acceso a la pantalla y a la API (salvo webhooks) requiere iniciar sesión. Las credenciales por defecto son `admin` / `admin123`; se recomienda cambiarlas con `AUTH_USER`, `AUTH_PASSWORD` y `AUTH_SECRET`.
 
 ## Despliegue en Render
 

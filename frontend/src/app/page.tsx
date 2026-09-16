@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Moon, Sun } from 'lucide-react';
+import { LogOut, Moon, Sun } from 'lucide-react';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
 
@@ -175,6 +175,10 @@ export default function Home() {
     }
     return window.localStorage.getItem('flashcobro-theme') === 'light';
   });
+  const [authed, setAuthed] = useState<boolean | null>(null);
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
   const audioContextRef = useRef<AudioContext | null>(null);
 
   const appendLog = (message: string) => {
@@ -231,7 +235,13 @@ export default function Home() {
   }
 
   useEffect(() => {
-    const eventSource = new EventSource(`${API_BASE_URL}/api/v1/payments/stream`);
+    if (authed !== true) {
+      return;
+    }
+
+    const eventSource = new EventSource(`${API_BASE_URL}/api/v1/payments/stream`, {
+      withCredentials: true,
+    });
 
     eventSource.onopen = () => {
       setIsConnected(true);
@@ -281,10 +291,14 @@ export default function Home() {
     };
 
     return () => eventSource.close();
-  }, [audioEnabled]);
+  }, [audioEnabled, authed]);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/api/v1/payments/history?limit=10`)
+    if (authed !== true) {
+      return;
+    }
+
+    fetch(`${API_BASE_URL}/api/v1/payments/history?limit=10`, { credentials: 'include' })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`Error ${res.status}`);
@@ -295,11 +309,14 @@ export default function Home() {
         setPayments(records);
       })
       .catch((error: Error) => appendLog(`Error al cargar historial: ${error.message}`));
-  }, []);
+  }, [authed]);
 
   useEffect(() => {
     const today = new Date().toLocaleDateString('en-CA');
-    fetch(`${API_BASE_URL}/api/v1/payments/summary?fromDate=${today}&toDate=${today}`)
+    if (authed !== true) {
+      return;
+    }
+    fetch(`${API_BASE_URL}/api/v1/payments/summary?fromDate=${today}&toDate=${today}`, { credentials: 'include' })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`Error ${res.status}`);
@@ -311,11 +328,11 @@ export default function Home() {
         setCajaDiaria(dayTotal ? dayTotal.total : 0);
       })
       .catch((error: Error) => appendLog(`Error al cargar caja diaria: ${error.message}`));
-  }, []);
+  }, [authed]);
 
   function loadDailyTotals(desde: string = fromDate, hasta: string = toDate) {
     setLoadingTotals(true);
-    fetch(`${API_BASE_URL}/api/v1/payments/summary?fromDate=${desde}&toDate=${hasta}`)
+    fetch(`${API_BASE_URL}/api/v1/payments/summary?fromDate=${desde}&toDate=${hasta}`, { credentials: 'include' })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`Error ${res.status}`);
@@ -331,7 +348,10 @@ export default function Home() {
     const now = new Date();
     const desde = new Date(now.getFullYear(), now.getMonth(), 1).toLocaleDateString('en-CA');
     const hasta = now.toLocaleDateString('en-CA');
-    fetch(`${API_BASE_URL}/api/v1/payments/summary?fromDate=${desde}&toDate=${hasta}`)
+    if (authed !== true) {
+      return;
+    }
+    fetch(`${API_BASE_URL}/api/v1/payments/summary?fromDate=${desde}&toDate=${hasta}`, { credentials: 'include' })
       .then((res) => {
         if (!res.ok) {
           throw new Error(`Error ${res.status}`);
@@ -340,7 +360,7 @@ export default function Home() {
       })
       .then(setDailyTotals)
       .catch((error: Error) => appendLog(`Error al cargar totales: ${error.message}`));
-  }, []);
+  }, [authed]);
 
   useEffect(() => {
     if (!showBanner) {
@@ -392,6 +412,119 @@ export default function Home() {
     window.localStorage.setItem('flashcobro-theme', isLight ? 'light' : 'dark');
   }, [isLight]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE_URL}/api/v1/auth/me`, { credentials: 'include' })
+      .then((res) => res.json() as Promise<{ authenticated: boolean }>)
+      .then(({ authenticated }) => {
+        if (!cancelled) {
+          setAuthed(authenticated);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAuthed(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoginError('');
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username: loginUsername, password: loginPassword }),
+      });
+
+      if (!res.ok) {
+        setLoginError('Credenciales incorrectas');
+        return;
+      }
+
+      setAuthed(true);
+      setLoginUsername('');
+      setLoginPassword('');
+    } catch {
+      setLoginError('No se pudo conectar con el servidor');
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    } catch {
+      // el logout local no debe fallar por red
+    }
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    setAuthed(false);
+  };
+
+  if (authed !== true) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 light:bg-slate-100 px-6 text-white light:text-slate-900">
+        {authed === null ? (
+          <div className="animate-pulse text-lg font-semibold text-slate-300 light:text-slate-600">
+            Cargando...
+          </div>
+        ) : (
+          <div className="w-full max-w-sm rounded-3xl border border-slate-800 light:border-slate-200 bg-slate-900 light:bg-white p-8 shadow-2xl shadow-slate-950/40 light:shadow-slate-200/60">
+            <div className="mb-6 flex flex-col items-center gap-3 text-center">
+              <FlashCobroLogo className="shadow-emerald-900/40" />
+              <h1 className="text-2xl font-black tracking-tight text-white light:text-slate-900">
+                FlashCobro
+              </h1>
+              <p className="text-sm text-slate-400 light:text-slate-500">
+                Acceso restringido · Ingresá tus credenciales
+              </p>
+            </div>
+
+            <form onSubmit={handleLogin} className="flex flex-col gap-4">
+              <input
+                type="text"
+                autoComplete="username"
+                placeholder="Usuario"
+                value={loginUsername}
+                onChange={(event) => setLoginUsername(event.target.value)}
+                className="rounded-xl border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 px-4 py-3 text-sm text-white light:text-slate-900 placeholder:text-slate-500 outline-none transition focus:border-emerald-500 [color-scheme:dark] light:[color-scheme:light]"
+              />
+              <input
+                type="password"
+                autoComplete="current-password"
+                placeholder="Contraseña"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                className="rounded-xl border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 px-4 py-3 text-sm text-white light:text-slate-900 placeholder:text-slate-500 outline-none transition focus:border-emerald-500 [color-scheme:dark] light:[color-scheme:light]"
+              />
+              {loginError && (
+                <p className="text-sm font-semibold text-rose-400 light:text-rose-600">
+                  {loginError}
+                </p>
+              )}
+              <button
+                type="submit"
+                className="rounded-xl bg-emerald-500 py-3 text-sm font-bold text-slate-950 transition hover:bg-emerald-400"
+              >
+                Ingresar
+              </button>
+            </form>
+          </div>
+        )}
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-slate-950 light:bg-slate-100 px-6 py-8 text-white light:text-slate-900">
       <div className="mx-auto flex max-w-6xl flex-col gap-8">
@@ -436,6 +569,16 @@ export default function Home() {
               className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 text-slate-200 light:text-slate-700 transition hover:bg-slate-700 light:hover:bg-slate-200"
             >
               {isLight ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              title="Cerrar sesión"
+              aria-label="Cerrar sesión"
+              className="flex h-10 items-center gap-2 rounded-full border border-slate-700 light:border-slate-300 bg-slate-800 light:bg-slate-100 px-4 text-sm font-bold text-slate-200 light:text-slate-700 transition hover:bg-slate-700 light:hover:bg-slate-200"
+            >
+              <LogOut className="h-4 w-4" />
             </button>
 
             <div className="flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-medium">

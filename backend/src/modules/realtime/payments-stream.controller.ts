@@ -1,7 +1,9 @@
-import { Controller, MessageEvent, Sse } from '@nestjs/common';
+import { Controller, MessageEvent, Sse, UseGuards } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Observable, interval, map, merge } from 'rxjs';
+import { AuthGuard } from '../auth/auth.guard.js';
 
+@UseGuards(AuthGuard)
 @Controller()
 export class PaymentsStreamController {
   constructor(private readonly eventEmitter: EventEmitter2) {}
